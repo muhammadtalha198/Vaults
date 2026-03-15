@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "./BaseVault.sol";
+import {BaseVault} from "./BaseVault.sol";
 
 /// @title  PublicPoolVault
 /// @notice Holds 40% of platform token supply.
@@ -27,11 +27,5 @@ contract PublicPoolVault is BaseVault {
         uint256 amount
     ) external onlyMultisig {
         _release(destination, amount);
-        emit TrancheSent(destination, amount, block.timestamp);
-    }
-
-    /// @notice balance of PublicPoolVault
-    function PublicPoolVaultBalance() external view {
-        vaultBalance();
     }
 }

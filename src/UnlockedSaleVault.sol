@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "./BaseVault.sol";
+import {BaseVault} from "./BaseVault.sol";
 
 /// @title  UnlockedSaleVault
 /// @notice Hot operational vault that receives token tranches from PublicPoolVault
@@ -11,13 +11,6 @@ import "./BaseVault.sol";
 contract UnlockedSaleVault is BaseVault {
     string public constant VAULT_NAME = "UnlockedSaleVault";
 
-    /// @notice The approved bonding curve contract that may pull sale tokens.
-    address public bondingCurve;
-
-    event BondingCurveUpdated(
-        address indexed oldCurve,
-        address indexed newCurve
-    );
     event SaleTransfer(address indexed buyer, uint256 amount);
 
     error NotAuthorised();
@@ -27,26 +20,10 @@ contract UnlockedSaleVault is BaseVault {
         address _token
     ) BaseVault(_multisig, _token) {}
 
-    /// @notice Multisig sets (or rotates) the bonding curve address.
-    function setBondingCurve(address _bondingCurve) external onlyMultisig {
-        if (_bondingCurve == address(0)) revert ZeroAddress();
-        emit BondingCurveUpdated(bondingCurve, _bondingCurve);
-        bondingCurve = _bondingCurve;
-    }
-
     /// @notice Bonding curve calls this to transfer tokens to a buyer.
     ///         Only the approved bondingCurve address may call this.
     function transferToBuyer(address buyer, uint256 amount) external {
-        if (msg.sender != bondingCurve) revert NotAuthorised();
-        if (buyer == address(0)) revert ZeroAddress();
-        if (amount == 0) revert ZeroAmount();
-        if (token.balanceOf(address(this)) < amount)
-            revert InsufficientBalance();
-
-        totalReleased += amount;
-        // token.safeTransfer(buyer, amount);
-
+        _release(buyer, amount);
         emit SaleTransfer(buyer, amount);
-        emit AssetReleased(buyer, amount);
     }
 }

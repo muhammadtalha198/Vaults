@@ -1,96 +1,112 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "./BaseVault.sol";
+import {BaseVault} from "./BaseVault.sol";
 
-/// @title  StreamFlowEscrowVault
-/// @notice Holds 43% of supply for artist vesting.
-///         The multisig controls all releases — vesting schedule logic
-///         lives off-chain or in a separate scheduler contract that
-///         calls through the multisig.
 contract StreamFlowEscrowVault is BaseVault {
     string public constant VAULT_NAME = "StreamFlowEscrowVault";
 
-    struct VestingRecord {
-        address artist;
-        uint256 totalAllocated;
-        uint256 totalReleased;
-    }
+    uint256 public constant TOTAL_PERIODS = 4;
+    uint256 public constant PERIOD_DURATION = 180 days;
 
-    // artistAddress => VestingRecord
-    mapping(address => VestingRecord) public vestingRecords;
+    uint256 public immutable PERIOD_UNLOCK_AMOUNT;
 
-    event VestingRecordCreated(
-        address indexed artist,
-        uint256 totalAllocated,
-        uint256 startTime,
-        uint256 endTime
+    uint256 public scheduleStart;
+    address public artistUnvestedVault;
+    bool public scheduleInitialised;
+
+    mapping(uint256 => bool) public periodReleased;
+
+    event ScheduleInitialised(
+        uint256 indexed startTime,
+        address indexed artistUnvestedVault,
+        uint256 period1UnlocksAt,
+        uint256 period2UnlocksAt,
+        uint256 period3UnlocksAt,
+        uint256 period4UnlocksAt
     );
-    event ArtistVestingReleased(
-        address indexed artist,
+
+    event PeriodReleased(
+        uint256 indexed period,
         uint256 amount,
-        uint256 totalReleasedToArtist
+        uint256 unlockedAt,
+        uint256 releasedAt
+    );
+
+    error ScheduleNotInitialised();
+    error ScheduleAlreadyInitialised();
+    error InvalidPeriod(uint256 period);
+    error PeriodAlreadyReleased(uint256 period);
+    error PeriodNotYetUnlocked(
+        uint256 period,
+        uint256 unlocksAt,
+        uint256 currentTime
     );
 
     constructor(
         address _multisig,
-        address _token
-    ) BaseVault(_multisig, _token) {}
-
-    /// @notice Register an artist vesting allocation.
-    function createVestingRecord(
-        address artist,
-        uint256 totalAllocated,
-        uint256 startTime,
-        uint256 endTime
-    ) external onlyMultisig {
-        if (artist == address(0)) revert ZeroAddress();
-        if (totalAllocated == 0) revert ZeroAmount();
-        require(endTime > startTime, "Invalid time range");
-
-        vestingRecords[artist] = VestingRecord({
-            artist: artist,
-            totalAllocated: totalAllocated,
-            totalReleased: 0,
-            startTime: startTime,
-            endTime: endTime
-        });
-
-        emit VestingRecordCreated(artist, totalAllocated, startTime, endTime);
+        address _token,
+        uint256 _periodUnlockAmount
+    ) BaseVault(_multisig, _token) {
+        if (_periodUnlockAmount == 0) revert ZeroAmount();
+        PERIOD_UNLOCK_AMOUNT = _periodUnlockAmount;
     }
 
-    /// @notice Release vested tokens to a specific artist.
-    ///         Multisig is responsible for computing the correct amount.
-    function releaseToArtist(
-        address artist,
-        uint256 amount
+    function startSchedule(
+        address _artistUnvestedVault,
+        uint256 _startTime
     ) external onlyMultisig {
-        if (artist == address(0)) revert ZeroAddress();
-        if (amount == 0) revert ZeroAmount();
+        if (scheduleInitialised) revert ScheduleAlreadyInitialised();
+        if (_artistUnvestedVault == address(0)) revert ZeroAddress();
+        require(_startTime >= block.timestamp, "Start time is in the past");
 
-        VestingRecord storage record = vestingRecords[artist];
-        require(record.totalAllocated > 0, "No vesting record");
-        require(
-            record.totalReleased + amount <= record.totalAllocated,
-            "Exceeds allocation"
+        scheduleInitialised = true;
+        scheduleStart = _startTime;
+        artistUnvestedVault = _artistUnvestedVault;
+
+        emit ScheduleInitialised(
+            _startTime,
+            _artistUnvestedVault,
+            _startTime + (1 * PERIOD_DURATION),
+            _startTime + (2 * PERIOD_DURATION),
+            _startTime + (3 * PERIOD_DURATION),
+            _startTime + (4 * PERIOD_DURATION)
         );
-        if (token.balanceOf(address(this)) < amount)
-            revert InsufficientBalance();
-
-        record.totalReleased += amount;
-        totalReleased += amount;
-
-        // token.safeTransfer(artist, amount);
-
-        emit ArtistVestingReleased(artist, amount, record.totalReleased);
-        emit AssetReleased(artist, amount);
     }
 
-    /// @notice View how much of an artist's allocation remains locked.
-    function remainingAllocation(
-        address artist
-    ) external view returns (uint256) {
-        VestingRecord storage r = vestingRecords[artist];
-        return r.totalAllocated - r.totalReleased;
+    function releasePeriod(uint256 period) external onlyMultisig {
+        if (!scheduleInitialised) revert ScheduleNotInitialised();
+        if (period == 0 || period > TOTAL_PERIODS) revert InvalidPeriod(period);
+        if (periodReleased[period]) revert PeriodAlreadyReleased(period);
+
+        uint256 unlocksAt = scheduleStart + (period * PERIOD_DURATION);
+
+        if (block.timestamp < unlocksAt) {
+            revert PeriodNotYetUnlocked(period, unlocksAt, block.timestamp);
+        }
+
+        periodReleased[period] = true;
+
+        _release(artistUnvestedVault, PERIOD_UNLOCK_AMOUNT);
+
+        emit PeriodReleased(
+            period,
+            PERIOD_UNLOCK_AMOUNT,
+            unlocksAt,
+            block.timestamp
+        );
+    }
+
+    function periodUnlockTime(uint256 period) external view returns (uint256) {
+        if (!scheduleInitialised) revert ScheduleNotInitialised();
+        if (period == 0 || period > TOTAL_PERIODS) revert InvalidPeriod(period);
+
+        return scheduleStart + (period * PERIOD_DURATION);
+    }
+
+    function releasedPeriodCount() external view returns (uint256 count) {
+        for (uint256 i = 1; i <= TOTAL_PERIODS; i++) {
+            if (periodReleased[i]) count++;
+        }
     }
 }
