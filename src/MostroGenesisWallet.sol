@@ -12,11 +12,19 @@ contract MostroGenesisWallet is BaseVault {
 
     constructor(
         address _multisig,
-        address _token
-    ) BaseVault(_multisig, _token) {}
+        address _token,
+        address _contract
+    ) BaseVault(_multisig, _token, _contract) {}
 
     /// @notice Disburse tokens with a tagged purpose for on-chain auditability.
-    function disburse(address recipient, uint256 amount) external onlyMultisig {
+    function withdraw(address recipient, uint256 amount) external onlyMultisig {
         _release(recipient, amount);
+    }
+
+    function depositInMostroGenesisWallet(
+        address from,
+        uint256 amount
+    ) external onlyContract {
+        _deposit(from, amount);
     }
 }

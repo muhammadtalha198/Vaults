@@ -10,16 +10,11 @@ import {BaseVault} from "./BaseVault.sol";
 contract PublicPoolVault is BaseVault {
     string public constant VAULT_NAME = "PublicPoolVault";
 
-    event TrancheSent(
-        address indexed destination,
-        uint256 amount,
-        uint256 timestamp
-    );
-
     constructor(
         address _multisig,
-        address _token
-    ) BaseVault(_multisig, _token) {}
+        address _token,
+        address _contract
+    ) BaseVault(_multisig, _token, _contract) {}
 
     /// @notice Release a tranche to the unlocked sale vault (or any recipient).
     function releaseTranche(
@@ -27,5 +22,12 @@ contract PublicPoolVault is BaseVault {
         uint256 amount
     ) external onlyMultisig {
         _release(destination, amount);
+    }
+
+    function depositInPublicVault(
+        address from,
+        uint256 amount
+    ) external onlyContract {
+        _deposit(from, amount);
     }
 }

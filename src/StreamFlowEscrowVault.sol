@@ -9,8 +9,6 @@ contract StreamFlowEscrowVault is BaseVault {
     uint256 public constant TOTAL_PERIODS = 4;
     uint256 public constant PERIOD_DURATION = 180 days;
 
-    uint256 public immutable PERIOD_UNLOCK_AMOUNT;
-
     uint256 public scheduleStart;
     address public artistUnvestedVault;
     bool public scheduleInitialised;
@@ -46,11 +44,8 @@ contract StreamFlowEscrowVault is BaseVault {
     constructor(
         address _multisig,
         address _token,
-        uint256 _periodUnlockAmount
-    ) BaseVault(_multisig, _token) {
-        if (_periodUnlockAmount == 0) revert ZeroAmount();
-        PERIOD_UNLOCK_AMOUNT = _periodUnlockAmount;
-    }
+        address _contract
+    ) BaseVault(_multisig, _token, _contract) {}
 
     function startSchedule(
         address _artistUnvestedVault,
@@ -58,6 +53,7 @@ contract StreamFlowEscrowVault is BaseVault {
     ) external onlyMultisig {
         if (scheduleInitialised) revert ScheduleAlreadyInitialised();
         if (_artistUnvestedVault == address(0)) revert ZeroAddress();
+
         require(_startTime >= block.timestamp, "Start time is in the past");
 
         scheduleInitialised = true;
@@ -74,7 +70,10 @@ contract StreamFlowEscrowVault is BaseVault {
         );
     }
 
-    function releasePeriod(uint256 period) external onlyMultisig {
+    function releasePeriod(
+        uint256 period,
+        uint256 _amount
+    ) external onlyMultisig {
         if (!scheduleInitialised) revert ScheduleNotInitialised();
         if (period == 0 || period > TOTAL_PERIODS) revert InvalidPeriod(period);
         if (periodReleased[period]) revert PeriodAlreadyReleased(period);
@@ -87,14 +86,9 @@ contract StreamFlowEscrowVault is BaseVault {
 
         periodReleased[period] = true;
 
-        _release(artistUnvestedVault, PERIOD_UNLOCK_AMOUNT);
+        _release(artistUnvestedVault, _amount);
 
-        emit PeriodReleased(
-            period,
-            PERIOD_UNLOCK_AMOUNT,
-            unlocksAt,
-            block.timestamp
-        );
+        emit PeriodReleased(period, _amount, unlocksAt, block.timestamp);
     }
 
     function periodUnlockTime(uint256 period) external view returns (uint256) {
@@ -108,5 +102,12 @@ contract StreamFlowEscrowVault is BaseVault {
         for (uint256 i = 1; i <= TOTAL_PERIODS; i++) {
             if (periodReleased[i]) count++;
         }
+    }
+
+    function depositInStreamFlowVault(
+        address from,
+        uint256 amount
+    ) external onlyContract {
+        _deposit(from, amount);
     }
 }

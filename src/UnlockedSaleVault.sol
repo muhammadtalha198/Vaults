@@ -13,17 +13,16 @@ contract UnlockedSaleVault is BaseVault {
 
     event SaleTransfer(address indexed buyer, uint256 amount);
 
-    error NotAuthorised();
-
     constructor(
         address _multisig,
-        address _token
-    ) BaseVault(_multisig, _token) {}
+        address _token,
+        address _contract
+    ) BaseVault(_multisig, _token, _contract) {}
 
-    /// @notice Bonding curve calls this to transfer tokens to a buyer.
-    ///         Only the approved bondingCurve address may call this.
-    function transferToBuyer(address buyer, uint256 amount) external {
-        _release(buyer, amount);
-        emit SaleTransfer(buyer, amount);
+    function receiveFromPublicVault(
+        address from,
+        uint256 amount
+    ) external onlyContract {
+        _deposit(from, amount);
     }
 }
